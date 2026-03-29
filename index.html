@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simple DEX UI</title>
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      justify-content: center;
+      padding: 40px;
+    }
+
+    .container {
+      width: 420px;
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 10px;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    input {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      border-radius: 5px;
+      border: none;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 5px;
+      border: none;
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #2563eb;
+    }
+
+    .section {
+      margin-top: 20px;
+    }
+
+    .box {
+      background: #334155;
+      padding: 10px;
+      border-radius: 5px;
+      margin-top: 5px;
+      font-size: 14px;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #22c55e;
+    }
+
+    .loading {
+      color: #facc15;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h2>🚀 Simple DEX</h2>
+
+  <!-- Contract Inputs -->
+  <div class="section">
+    <input id="dexAddr" placeholder="DEX Address">
+    <input id="tokenAAddr" placeholder="TokenA Address">
+    <input id="tokenBAddr" placeholder="TokenB Address">
+  </div>
+
+  <button onclick="connect()">Connect Wallet</button>
+  <div class="box" id="account">Not connected</div>
+
+  <div class="section">
+    <h3>Add Liquidity</h3>
+    <input id="liqA" placeholder="TokenA amount">
+    <input id="liqB" placeholder="TokenB amount">
+    <button onclick="addLiquidity()">Add</button>
+  </div>
+
+  <div class="section">
+    <h3>Swap</h3>
+    <input id="swapAmount" placeholder="Amount">
+    <button onclick="swapAtoB()">Swap A → B</button>
+    <button onclick="swapBtoA()">Swap B → A</button>
+  </div>
+
+  <div class="section">
+    <h3>Info</h3>
+    <button onclick="getData()">Refresh</button>
+
+    <div class="box" id="reserves">Reserves: -</div>
+    <div class="box" id="price">Spot Price: -</div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+
+<script>
+let provider, signer, dex, tokenA, tokenB;
+let DEX_ADDRESS, TOKEN_A, TOKEN_B;
+
+const DEX_ABI = [
+  "function addLiquidity(uint,uint)",
+  "function swapAforB(uint)",
+  "function swapBforA(uint)",
+  "function getReserves() view returns (uint,uint)",
+  "function spotPrice() view returns (uint)"
+];
+
+const ERC20_ABI = [
+  "function approve(address,uint)"
+];
+
+function setStatus(msg, loading=false) {
+  const el = document.getElementById("status");
+  el.innerText = msg;
+  el.className = loading ? "status loading" : "status";
+}
+
+async function connect() {
+  try {
+    DEX_ADDRESS = document.getElementById("dexAddr").value.trim();
+    TOKEN_A = document.getElementById("tokenAAddr").value.trim();
+    TOKEN_B = document.getElementById("tokenBAddr").value.trim();
+
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+
+    document.getElementById("account").innerText =
+      await signer.getAddress();
+
+    dex = new ethers.Contract(DEX_ADDRESS, DEX_ABI, signer);
+    tokenA = new ethers.Contract(TOKEN_A, ERC20_ABI, signer);
+    tokenB = new ethers.Contract(TOKEN_B, ERC20_ABI, signer);
+
+    setStatus("Connected ✅");
+
+  } catch (e) {
+    setStatus("Connection failed ❌");
+  }
+}
+
+async function addLiquidity() {
+  try {
+    setStatus("Processing...", true);
+
+    const a = document.getElementById("liqA").value;
+    const b = document.getElementById("liqB").value;
+
+    await tokenA.approve(DEX_ADDRESS, ethers.parseEther(a));
+    await tokenB.approve(DEX_ADDRESS, ethers.parseEther(b));
+
+    await dex.addLiquidity(
+      ethers.parseEther(a),
+      ethers.parseEther(b)
+    );
+
+    setStatus("Liquidity added ✅");
+    await getData();
+
+  } catch (e) {
+    setStatus("Failed ❌");
+  }
+}
+
+async function swapAtoB() {
+  try {
+    setStatus("Processing...", true);
+
+    const amt = document.getElementById("swapAmount").value;
+
+    await tokenA.approve(DEX_ADDRESS, ethers.parseEther(amt));
+    await dex.swapAforB(ethers.parseEther(amt));
+
+    setStatus("Swap A → B done ✅");
+    await getData();
+
+  } catch (e) {
+    setStatus("Swap failed ❌");
+  }
+}
+
+async function swapBtoA() {
+  try {
+    setStatus("Processing...", true);
+
+    const amt = document.getElementById("swapAmount").value;
+
+    await tokenB.approve(DEX_ADDRESS, ethers.parseEther(amt));
+    await dex.swapBforA(ethers.parseEther(amt));
+
+    setStatus("Swap B → A done ✅");
+    await getData();
+
+  } catch (e) {
+    setStatus("Swap failed ❌");
+  }
+}
+
+async function getData() {
+  try {
+    setStatus("Fetching data...", true);
+
+    const res = await dex.getReserves();
+    const price = await dex.spotPrice();
+
+    const rA = Number(ethers.formatEther(res[0])).toFixed(2);
+    const rB = Number(ethers.formatEther(res[1])).toFixed(2);
+    const p = Number(ethers.formatEther(price)).toFixed(4);
+
+    document.getElementById("reserves").innerText =
+      `TokenA: ${rA} | TokenB: ${rB}`;
+
+    document.getElementById("price").innerText =
+      `1 TokenA = ${p} TokenB`;
+
+    setStatus("Updated ✅");
+
+  } catch (e) {
+    setStatus("Error fetching data ❌");
+  }
+}
+</script>
+
+</body>
+</html>
